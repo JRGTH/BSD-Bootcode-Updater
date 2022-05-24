@@ -32,7 +32,7 @@ PATH=${PATH}:/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
 
 # Set globals.
 CMDNAME="bootcode-update"
-VERSION="0.3.1"
+VERSION="0.3.2"
 RETRYCNT=0
 RETRYMAX=2
 DRYRUNON=0
@@ -117,13 +117,14 @@ diskinfo_check() {
 	if [ "${TYPE}" == "GPT/ZFS" ]; then
 		# Check if the detected geom device(s) are part of the zroot pool.
 		# Will use zdb to check the zroot disk(s) MOS Configuration.
-		_zdbmosconfig=$(zdb -C "${_zpool}" | grep ${_gptpardev} | awk '{print $2}')
+		_zdbmosconfig=$(zdb -C "${_zpool}" | grep "${_gptpardev}" | awk '{print $2}')
 		if [ -z "${_zdbmosconfig}" ]; then
 			# Try with glabel instead.
 			_zfspart=$(gpart show -p ${_gptpardev} | grep -w 'freebsd-zfs' | awk '{print $3}')
-			_gptlabel=$(glabel status -s ${_zfspart} | awk '{print $1}')
-			_zdbmosconfig=$(zdb -C "${_zpool}" | grep ${_gptlabel} | awk '{print $2}')
-			if [ -z "${_zdbmosconfig}" ]; then
+			_gptlabel=$(glabel status -s ${_zfspart} 2>/dev/null | awk '{print $1}')
+			if [ -n "${_gptlabel}" ]; then
+				_zdbmosconfig=$(zdb -C "${_zpool}" | grep -w "${_gptlabel}" | awk '{print $2}')
+			else
 				_zdbmosconfig="Unknown zfs member"
 			fi
 		fi
