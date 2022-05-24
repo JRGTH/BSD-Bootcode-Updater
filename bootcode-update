@@ -88,6 +88,8 @@ diskinfo_check() {
 	local _answer
 	local _zdbmosconfig
 	local _espmounted
+	local _zfspart
+	local _gptlabel
 	local _diskserial=$(diskinfo -s ${_diskpart})
 
 	if [ -z "${_diskserial}" ]; then
@@ -116,6 +118,15 @@ diskinfo_check() {
 		# Check if the detected geom device(s) are part of the zroot pool.
 		# Will use zdb to check the zroot disk(s) MOS Configuration.
 		_zdbmosconfig=$(zdb -C "${_zpool}" | grep ${_gptpardev} | awk '{print $2}')
+		if [ -z "${_zdbmosconfig}" ]; then
+			# Try with glabel instead.
+			_zfspart=$(gpart show -p ${_gptpardev} | grep -w 'freebsd-zfs' | awk '{print $3}')
+			_gptlabel=$(glabel status -s ${_zfspart} | awk '{print $1}')
+			_zdbmosconfig=$(zdb -C "${_zpool}" | grep ${_gptlabel} | awk '{print $2}')
+			if [ -z "${_zdbmosconfig}" ]; then
+				_zdbmosconfig="Unknown zfs member"
+			fi
+		fi
 		echo "Pool Member:    [ ${_zpool}: ${_zdbmosconfig} ]"
 	fi
 
@@ -153,6 +164,7 @@ efiboot_update() {
 	local _tmpdir="/tmp/boot_esp"
 	local _osversion=$(uname -r | cut -d '-' -f1 | cut -d '.' -f1)
 	local _efiparts=$(gpart show -p | grep -w "efi" | awk '{print $3}')
+	trap "rm -rf ${_tmpdir}" 0 1 2 5 15
 
 	TYPE="EFI"
 	if [ -n "${_efiparts}" ]; then
