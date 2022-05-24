@@ -159,4 +159,7 @@ gpart bootcode -b /boot/pmbr -p /boot/gptzfsboot -i 2 ada1 (Dryrun)
 => Success! (Dryrun)
 ```
 
- P.S. Sorry about the clunky code of this beta/experiment utility.
+# Notes:
+
+This utility does not interact with `efibootmgr` nor does creates for missing 'startup.nsh' file(s) in this beta/experimental stage.
+Sorry about the clunky code of this beta/experiment utility.
