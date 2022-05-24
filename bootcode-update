@@ -1,0 +1,372 @@
+#!/bin/sh
+
+# Copyright (c) 2020-2022 José Rivera <joserprg@gmail.com>
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions
+# are met:
+# 1. Redistributions of source code must retain the above copyright
+#    notice, this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright
+#    notice, this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+# 3. Neither the name of the developer nor the names of contributors
+#    may be used to endorse or promote products derived from this software
+#    without specific prior written permission.
+
+# THIS SOFTWARE IS PROVIDED BY THE DEVELOPER ``AS IS'' AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED.  IN NO EVENT SHALL THE DEVELOPER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+# OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+# HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+# LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+# OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+# SUCH DAMAGE.
+
+# Set environment.
+PATH=${PATH}:/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
+
+# Set globals.
+CMDNAME="bootcode-update"
+VERSION="0.3.0"
+RETRYCNT=0
+RETRYMAX=2
+DRYRUNON=0
+EFIBOOTON=
+GPTBOOTON=
+ALLBOOTON=
+
+# Check for compatibility.
+if [ $(uname -r | cut -d '-' -f1 | cut -d '.' -f1) -lt 12 ]; then
+	echo "Error: ${CMDNAME} works on FreeBSD 12.0 or later"
+	exit 1
+fi
+
+# Root privileges required.
+if [ "$(id -u)" -ne 0 ]; then
+	echo "${CMDNAME}: Permission denied"
+	exit 1
+fi
+
+# Check for mandatory files.
+FILES_REQUIRED="/boot/loader.efi /boot/pmbr /boot/gptboot /boot/gptzfsboot"
+for _file in ${FILES_REQUIRED}; do
+	if [ ! -f "${_file}" ]; then
+		echo "Error: Required file [${_file}] not found, exiting."
+		exit 1
+	fi
+done
+
+_usage() {
+	cat << EOF
+Usage: ${CMDNAME} [option]
+Options:
+        -d | --dryrun   Execute a dryrun test only.
+        -e | --efi      Update EFI bootcode.
+        -g | --gpt      Update GPT/ZFS bootcode.
+        -a | --all      Update both EFI and GPT bootcode.
+        -h | --help     Print this help message and exit.
+        -v | --version  Print the version info and exit.
+
+EOF
+}
+
+zroot_check() {
+
+	# Check if this system boots from zfs/be.
+	_rootfs=$(mount | awk '/ \/ / {print $1}')
+	_zpool=$(echo ${_rootfs} | awk -F '/' '{print $1}')
+	_bootfs=$(zpool list -H -o bootfs ${_zpool})
+}
+
+diskinfo_check() {
+
+	local _answer
+	local _zdbmosconfig
+	local _espmounted
+	local _diskserial=$(diskinfo -s ${_diskpart})
+
+	if [ -z "${_diskserial}" ]; then
+		_diskserial="Unknown serial"
+	fi
+
+	if [ "${TYPE}" == "EFI" ]; then
+		_fstype=$(fstyp /dev/${_diskpart} 2>/dev/null)
+		if [ "${_fstype}" = "msdosfs" ]; then
+			_mountpoint=
+			_espmounted=$(df /dev/${_diskpart} 2>/dev/null | sed '1d' | awk '{print $6}')
+			if [ -n "${_espmounted}" ]; then
+				_mountpoint="${_espmounted}"
+			fi
+		fi
+	fi
+
+	echo ""
+	if [ "${TYPE}" == "EFI" ]; then
+		echo "UEFI Partition: [ ${_diskpart} ]"
+	else
+		echo "Boot Partition: [ ${_diskpart} ]"
+	fi
+	echo "Disk Serial:    [ ${_diskserial} ]"
+	if [ "${TYPE}" == "GPT/ZFS" ]; then
+		# Check if the detected geom device(s) are part of the zroot pool.
+		# Will use zdb to check the zroot disk(s) MOS Configuration.
+		_zdbmosconfig=$(zdb -C "${_zpool}" | grep ${_gptpardev} | awk '{print $2}')
+		echo "Pool Member:    [ ${_zpool}: ${_zdbmosconfig} ]"
+	fi
+
+	read -p "Proceed with ${TYPE} bootcode update for the following geom: [${_diskpart}] (Y/n)?: " _answer
+
+	case ${_answer} in
+		[Yy])
+			echo "Proceeding..."
+			;;
+		[Nn])
+			echo "Canceled, exiting."
+			exit 0
+			;;
+		*)
+			if [ "${RETRYCNT}" -ge "${RETRYMAX}" ]; then
+				echo "Error: Retries exhausted, exiting!"
+				exit 1
+			else
+				RETRYCNT=$(expr ${RETRYCNT} + 1)
+				RETRYLFT=$(expr ${RETRYMAX} - ${RETRYCNT} + 1)
+				echo "Error: Invalid response, (${RETRYLFT}) retries left."
+				diskinfo_check
+			fi
+			;;
+	esac
+}
+
+efiboot_update() {
+
+	local _tmpdir
+	local _fstype
+	local _diskpart
+	local _partsize
+	local _mountpoint
+	local _tmpdir="/tmp/boot_esp"
+	local _osversion=$(uname -r | cut -d '-' -f1 | cut -d '.' -f1)
+	local _efiparts=$(gpart show -p | grep -w "efi" | awk '{print $3}')
+
+	TYPE="EFI"
+	if [ -n "${_efiparts}" ]; then
+		mkdir ${_tmpdir}
+		for _diskpart in ${_efiparts}; do
+			RETURN=1
+			_partsize=$(gpart show -p | grep -w "${_diskpart}" | awk '{print $2}')
+			diskinfo_check
+			if [ "${_partsize}" -ge 409600 ]; then
+				if [ "${_fstype}" = "msdosfs" ]; then
+					if [ "${DRYRUNON}" = 1 ]; then
+						# Display briefly of what will happens.
+						echo "=> Updating EFI bootcode on ${_diskpart} (Dryrun)"
+						if [ -n "${_mountpoint}" ]; then
+							if [ -d "${_mountpoint}/efi/boot" ]; then
+								echo "cp -v /boot/loader.efi ${_mountpoint}/efi/boot/bootx64.efi (Dryrun)"
+								if [ -d "${_mountpoint}/efi/freebsd" ]; then
+									echo "cp -v /boot/loader.efi ${_mountpoint}/efi/freebsd/loader.efi (Dryrun)"
+								fi
+							fi
+						else
+							echo "mount -t msdosfs /dev/${_diskpart} ${_tmpdir} (Dryrun)"
+							echo "cp -v /boot/loader.efi ${_tmpdir}/efi/boot/bootx64.efi (Dryrun)"
+							if [ "${_osversion}" -ge 13 ]; then
+								echo "cp -v /boot/loader.efi ${_tmpdir}/efi/freebsd/loader.efi (Dryrun)"
+							fi
+							echo "umount ${_tmpdir} (Dryrun)"
+						fi
+						echo -e "=> Success! (Dryrun)\n"
+					else
+						echo "=> Updating EFI bootcode on ${_diskpart}"
+						if [ -n "${_mountpoint}" ]; then
+							if [ -d "${_mountpoint}/efi/boot" ]; then
+								cp -v /boot/loader.efi ${_mountpoint}/efi/boot/bootx64.efi
+								if [ -d "${_mountpoint}/efi/freebsd" ]; then
+									cp -v /boot/loader.efi ${_mountpoint}/efi/freebsd/loader.efi
+								fi
+							fi
+						else
+							mount -t msdosfs /dev/${_diskpart} ${_tmpdir}
+							if [ -d "${_tmpdir}/efi/boot" ]; then
+								cp -v /boot/loader.efi ${_tmpdir}/efi/boot/bootx64.efi
+								if [ -d "${_tmpdir}/efi/freebsd" ]; then
+									cp -v /boot/loader.efi ${_tmpdir}/efi/freebsd/loader.efi
+								fi
+							fi
+							umount ${_tmpdir}
+						fi
+
+						RETURN=$?
+						if [ "${RETURN}" -ne 0 ]; then
+							echo -e "Error: Failed updating EFI bootcode for: ${_diskpart}"
+							exit 1
+						else
+							echo -e "=> Success!\n"
+						fi
+					fi
+				else
+					echo -e "Warning: Unknown filesystem, skipping on ${_diskpart}.\n"
+				fi
+			else
+				echo -e "Warning: Skipping on ${_diskpart}, EFI partition should has at least 200MB.\n"
+			fi
+			sleep 1
+		done
+
+		if [ -d "${_tmpdir}" ]; then
+			rm -r ${_tmpdir}
+		fi
+	else
+		echo "No EFI partition(s) found on this system."
+	fi
+}
+
+gptboot_update() {
+
+	local _rootfs
+	local _zpool
+	local _bootfs
+	local _diskpart
+	local _gptpartnum
+	local _gptpardev
+	local _gptparts=$(gpart show -p | grep -w "freebsd-boot" | awk '{print $3}')
+
+	zroot_check
+
+	if [ -n "${_gptparts}" ]; then
+		if [ -z "${_bootfs}" -o "${_bootfs}" = "-" ]; then
+			TYPE="GPT"
+			for _diskpart in ${_gptparts}; do
+				RETURN=1
+				_gptpartnum=$(gpart show -p | grep -w "${_diskpart}" | awk '{print $3}' | sed 's/.*p//')
+				_gptpardev=$(gpart show -p | grep -w "${_diskpart}" | awk '{print $3}' | sed 's/p.*//')
+				diskinfo_check
+				if [ "${DRYRUNON}" = 1 ]; then
+					# Display briefly of what will happens.
+					echo "=> Updating GPT bootcode on ${_diskpart} (Dryrun)"
+					echo "gpart bootcode -b /boot/pmbr -p /boot/gptboot -i ${_gptpartnum} ${_gptpardev} (Dryrun)"
+					echo -e "=> Success! (Dryrun)\n"
+				else
+					echo "=> Updating GPT bootcode on ${_diskpart}"
+					gpart bootcode -b /boot/pmbr -p /boot/gptboot -i ${_gptpartnum} ${_gptpardev}
+
+					RETURN=$?
+					if [ "${RETURN}" -ne 0 ]; then
+						echo -e "Error: Failed updating GPT bootcode for: ${_diskpart}"
+						exit 1
+					else
+						echo -e "=> Success!\n"
+					fi
+				fi
+				sleep 1
+			done
+		else
+			if [ -n "${_bootfs}" -o "${_bootfs}" != "-" ]; then
+				TYPE="GPT/ZFS"
+				for _diskpart in ${_gptparts}; do
+					RETURN=1
+					_gptpartnum=$(gpart show -p | grep -w "${_diskpart}" | awk '{print $3}' | sed 's/.*p//')
+					_gptpardev=$(gpart show -p | grep -w "${_diskpart}" | awk '{print $3}' | sed 's/p.*//')
+					diskinfo_check
+					if [ "${DRYRUNON}" = 1 ]; then
+						# Display briefly of what will happens.
+						echo "=> Updating GPT/ZFS bootcode on ${_diskpart} (Dryrun)"
+						echo "gpart bootcode -b /boot/pmbr -p /boot/gptzfsboot -i ${_gptpartnum} ${_gptpardev} (Dryrun)"
+						echo -e "=> Success! (Dryrun)\n"
+					else
+						echo "=> Updating GPT/ZFS bootcode on ${_diskpart}"
+						gpart bootcode -b /boot/pmbr -p /boot/gptzfsboot -i ${_gptpartnum} ${_gptpardev}
+
+						RETURN=$?
+						if [ "${RETURN}" -ne 0 ]; then
+							echo -e "Error: Failed updating GPT/ZFS bootcode for: ${_diskpart}"
+							exit 1
+						else
+							echo -e "=> Success!\n"
+						fi
+					fi
+					sleep 1
+				done
+			else
+				echo "No zfs/be found on this system."
+			fi
+		fi
+	else
+		echo "No GPT partition(s) found on this system."
+	fi
+}
+
+all_update() {
+
+	efiboot_update
+	gptboot_update
+}
+
+if [ $# -gt 3 ]; then
+	_usage
+	exit 1
+fi
+
+# Handle and parse options.
+while [ $# -gt 0 ]; do
+	case "${1}" in
+		-d|--dryrun)
+			DRYRUNON=1
+			shift
+			;;
+		-e|--efi)
+			EFIBOOTON=1
+			shift
+			;;
+		-g|--gpt)
+			GPTBOOTON=1
+			shift
+			;;
+		-a|--all)
+			ALLBOOTON=1
+			shift
+			;;
+		-h|--help)
+			_usage
+			exit 0
+			;;
+		-v|--version)
+			echo -e "${CMDNAME} ${VERSION}"
+			exit 0
+			;;
+		-*|--*)
+			echo "Unknown Option."
+			_usage
+			exit 1
+			;;
+		*)
+			_usage
+			exit 1
+			;;
+	esac
+done
+
+# Check and validate for combined options.
+if [ -n "${ALLBOOTON}" ]; then
+	if [ -n "${EFIBOOTON}" ] || [ -n "${GPTBOOTON}" ]; then
+		echo "Error: -a option can't be used with -e or -g options."
+		exit 1
+	fi
+fi
+
+# Proceed with the selected options.
+if [ -n "${EFIBOOTON}" ] && [ -n "${GPTBOOTON}" ]; then
+	all_update
+elif [ -n "${EFIBOOTON}" ]; then
+	efiboot_update
+elif [ -n "${GPTBOOTON}" ]; then
+	gptboot_update
+elif [ -n "${ALLBOOTON}" ]; then
+	all_update
+fi
