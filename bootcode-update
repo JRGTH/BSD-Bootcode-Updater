@@ -32,7 +32,7 @@ PATH=${PATH}:/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
 
 # Set globals.
 CMDNAME="bootcode-update"
-VERSION="0.3.0"
+VERSION="0.3.1"
 RETRYCNT=0
 RETRYMAX=2
 DRYRUNON=0
