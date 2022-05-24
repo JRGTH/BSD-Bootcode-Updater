@@ -3,8 +3,15 @@
  FreeBSD Bootcode Updater Utility (**Experimental**)
  
  This is an attempt to make an easy to use FreeBSD bootcode updater utility for GPT/BIOS and EFI system boot.
- 
- 
+
+## Installation
+
+For now there is no installer yet, but you can simply copy and paste the single line command below on ssh for installation:
+
+```
+fetch --no-verify-peer https://github.com/JRGTH/BSD-Bootcode-Updater/archive/master.zip && tar -xvf master.zip --strip-components 1 'BSD-Bootcode-Updater-main/bootcode-update' && chmod 555 bootcode-update && mv bootcode-update /usr/local/sbin/ && rm master.zip && rehash
+```
+
  ## CLI Options
  
  ```
@@ -161,5 +168,5 @@ gpart bootcode -b /boot/pmbr -p /boot/gptzfsboot -i 2 ada1 (Dryrun)
 
 # Notes:
 
-This utility does not interact with `efibootmgr` nor does creates for missing 'startup.nsh' file(s) in this beta/experimental stage.
-Sorry about the clunky code of this beta/experiment utility.
+ This utility does not interact with `efibootmgr` nor does creates for missing 'startup.nsh' file(s) in this beta/experimental stage.
+ Sorry about the clunky code of this beta/experiment utility.
