@@ -32,7 +32,7 @@ PATH=${PATH}:/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
 
 # Set globals.
 CMDNAME="bootcode-update"
-VERSION="0.3.2"
+VERSION="0.3.3"
 RETRYCNT=0
 RETRYMAX=2
 DRYRUNON=0
@@ -162,6 +162,7 @@ efiboot_update() {
 	local _diskpart
 	local _partsize
 	local _mountpoint
+	local _spaceavail
 	local _tmpdir="/tmp/boot_esp"
 	local _osversion=$(uname -r | cut -d '-' -f1 | cut -d '.' -f1)
 	local _efiparts=$(gpart show -p | grep -w "efi" | awk '{print $3}')
@@ -180,7 +181,7 @@ efiboot_update() {
 						# Display briefly of what will happens.
 						echo "=> Updating EFI bootcode on ${_diskpart} (Dryrun)"
 						if [ -n "${_mountpoint}" ]; then
-							if [ -d "${_mountpoint}/efi/boot" ]; then
+							if [ -d "${_mountpoint}" ]; then
 								echo "cp -v /boot/loader.efi ${_mountpoint}/efi/boot/bootx64.efi (Dryrun)"
 								if [ -d "${_mountpoint}/efi/freebsd" ]; then
 									echo "cp -v /boot/loader.efi ${_mountpoint}/efi/freebsd/loader.efi (Dryrun)"
@@ -198,7 +199,7 @@ efiboot_update() {
 					else
 						echo "=> Updating EFI bootcode on ${_diskpart}"
 						if [ -n "${_mountpoint}" ]; then
-							if [ -d "${_mountpoint}/efi/boot" ]; then
+							if [ -d "${_mountpoint}" ]; then
 								cp -v /boot/loader.efi ${_mountpoint}/efi/boot/bootx64.efi
 								if [ -d "${_mountpoint}/efi/freebsd" ]; then
 									cp -v /boot/loader.efi ${_mountpoint}/efi/freebsd/loader.efi
@@ -206,11 +207,16 @@ efiboot_update() {
 							fi
 						else
 							mount -t msdosfs /dev/${_diskpart} ${_tmpdir}
-							if [ -d "${_tmpdir}/efi/boot" ]; then
-								cp -v /boot/loader.efi ${_tmpdir}/efi/boot/bootx64.efi
-								if [ -d "${_tmpdir}/efi/freebsd" ]; then
-									cp -v /boot/loader.efi ${_tmpdir}/efi/freebsd/loader.efi
+							_spaceavail=$(df ${_tmpdir} | sed '1d' | awk '{print $2}')
+							if [ "${_spaceavail}" -ge 204696 ]; then
+								if [ -d "${_tmpdir}/efi/boot" ]; then
+									cp -v /boot/loader.efi ${_tmpdir}/efi/boot/bootx64.efi
+									if [ -d "${_tmpdir}/efi/freebsd" ]; then
+										cp -v /boot/loader.efi ${_tmpdir}/efi/freebsd/loader.efi
+									fi
 								fi
+							else
+								echo -e "Warning: No space left on this device, skipping on ${_diskpart}"
 							fi
 							umount ${_tmpdir}
 						fi

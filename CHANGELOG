@@ -3,6 +3,7 @@
 =====================================
 Version    Description
 
+0.3.3......Fix efi search path, check for device space.
 0.3.2......Consistency improvements.
 0.3.1......Add glabel support.
 0.3.0......Initial commit.
