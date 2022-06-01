@@ -32,7 +32,7 @@ PATH=${PATH}:/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
 
 # Set globals.
 CMDNAME="bootcode-update"
-VERSION="0.3.3"
+VERSION="0.3.4"
 RETRYCNT=0
 RETRYMAX=2
 DRYRUNON=0
@@ -181,11 +181,15 @@ efiboot_update() {
 						# Display briefly of what will happens.
 						echo "=> Updating EFI bootcode on ${_diskpart} (Dryrun)"
 						if [ -n "${_mountpoint}" ]; then
-							if [ -d "${_mountpoint}" ]; then
+							if [ -d "${_mountpoint}/efi/boot" ]; then
 								echo "cp -v /boot/loader.efi ${_mountpoint}/efi/boot/bootx64.efi (Dryrun)"
 								if [ -d "${_mountpoint}/efi/freebsd" ]; then
 									echo "cp -v /boot/loader.efi ${_mountpoint}/efi/freebsd/loader.efi (Dryrun)"
+								else
+									echo "Warning: Missing '/efi/freebsd' directory, skipping cp. (Dryrun)"
 								fi
+							else
+								echo "Warning: Missing '/efi/boot' directory, skipping cp. (Dryrun)"
 							fi
 						else
 							echo "mount -t msdosfs /dev/${_diskpart} ${_tmpdir} (Dryrun)"
@@ -199,11 +203,15 @@ efiboot_update() {
 					else
 						echo "=> Updating EFI bootcode on ${_diskpart}"
 						if [ -n "${_mountpoint}" ]; then
-							if [ -d "${_mountpoint}" ]; then
+							if [ -d "${_mountpoint}/efi/boot" ]; then
 								cp -v /boot/loader.efi ${_mountpoint}/efi/boot/bootx64.efi
 								if [ -d "${_mountpoint}/efi/freebsd" ]; then
 									cp -v /boot/loader.efi ${_mountpoint}/efi/freebsd/loader.efi
+								else
+									echo "Warning: Missing '/efi/freebsd' directory, skipping cp."
 								fi
+							else
+								echo "Warning: Missing '/efi/boot' directory, skipping cp."
 							fi
 						else
 							mount -t msdosfs /dev/${_diskpart} ${_tmpdir}
@@ -213,10 +221,14 @@ efiboot_update() {
 									cp -v /boot/loader.efi ${_tmpdir}/efi/boot/bootx64.efi
 									if [ -d "${_tmpdir}/efi/freebsd" ]; then
 										cp -v /boot/loader.efi ${_tmpdir}/efi/freebsd/loader.efi
+									else
+										echo "Warning: Missing '/efi/freebsd' directory, skipping cp."
 									fi
+								else
+									echo "Warning: Missing '/efi/boot' directory, skipping cp."
 								fi
 							else
-								echo -e "Warning: No space left on this device, skipping on ${_diskpart}"
+								echo -e "Warning: No space left on this device, skipping on ${_diskpart}.\n"
 							fi
 							umount ${_tmpdir}
 						fi
