@@ -3,6 +3,7 @@
 =====================================
 Version    Description
 
+0.3.5......Compare efi space used and available.
 0.3.4......Just warning on missing efi directories.
 0.3.3......Fix efi search path, check for device space.
 0.3.2......Consistency improvements.

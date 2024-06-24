@@ -32,7 +32,7 @@ PATH=${PATH}:/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
 
 # Set globals.
 CMDNAME="bootcode-update"
-VERSION="0.3.4"
+VERSION="0.3.5"
 RETRYCNT=0
 RETRYMAX=2
 DRYRUNON=0
@@ -215,8 +215,9 @@ efiboot_update() {
 							fi
 						else
 							mount -t msdosfs /dev/${_diskpart} ${_tmpdir}
-							_spaceavail=$(df ${_tmpdir} | sed '1d' | awk '{print $2}')
-							if [ "${_spaceavail}" -ge 204696 ]; then
+							_spaceused=$(df ${_tmpdir} | sed '1d' | awk '{print $3}')
+							_spaceavail=$(df ${_tmpdir} | sed '1d' | awk '{print $4}')
+							if [ "${_spaceused}" -le ${_spaceavail} ]; then
 								if [ -d "${_tmpdir}/efi/boot" ]; then
 									cp -v /boot/loader.efi ${_tmpdir}/efi/boot/bootx64.efi
 									if [ -d "${_tmpdir}/efi/freebsd" ]; then
