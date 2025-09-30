@@ -32,7 +32,7 @@ PATH=${PATH}:/sbin:/bin:/usr/sbin:/usr/bin:/usr/local/sbin:/usr/local/bin
 
 # Set globals.
 CMDNAME="bootcode-update"
-VERSION="0.3.5"
+VERSION="0.3.6"
 RETRYCNT=0
 RETRYMAX=2
 DRYRUNON=0
@@ -100,9 +100,23 @@ diskinfo_check() {
 		_fstype=$(fstyp /dev/${_diskpart} 2>/dev/null)
 		if [ "${_fstype}" = "msdosfs" ]; then
 			_mountpoint=
-			_espmounted=$(df /dev/${_diskpart} 2>/dev/null | sed '1d' | awk '{print $6}')
+			_espmounted=
+			_espmount_dev=$(df "/boot/efi" 2>/dev/null | sed '1d' | awk '{print $1}' | sed 's|/dev/||')
+			# The default efi mountpoint/path is "/boot/efi" in FreeBSD.
+			if df "/boot/efi" >/dev/null 2>&1; then
+				if [ "${_diskpart}" = "${_espmount_dev}" ]; then
+					_espmounted="1"
+				else
+					# The default efi labels are "gpt/efibootN" in FreeBSD.
+					_espmount_label=$(glabel status | grep -w "${_espmount_dev}" | awk '{print $3}')
+					if [ "${_diskpart}" = "${_espmount_label}" ]; then
+						_espmounted="1"
+					fi
+				fi
+			fi
+
 			if [ -n "${_espmounted}" ]; then
-				_mountpoint="${_espmounted}"
+				_mountpoint="/boot/efi"
 			fi
 		fi
 	fi

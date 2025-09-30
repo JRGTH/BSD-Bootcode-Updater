@@ -6,7 +6,7 @@
 
 ## Installation
 
-For now there is no installer yet, but you can simply copy and paste the single line command below on ssh for installation:
+There is no installer, but you can simply copy and paste the single line command below on ssh for installation:
 
 ```
 fetch --no-verify-peer https://github.com/JRGTH/BSD-Bootcode-Updater/archive/master.zip && tar -xvf master.zip --strip-components 1 'BSD-Bootcode-Updater-main/bootcode-update' && chmod 555 bootcode-update && mv bootcode-update /usr/local/sbin/ && rm master.zip && rehash
@@ -170,3 +170,6 @@ gpart bootcode -b /boot/pmbr -p /boot/gptzfsboot -i 2 ada1 (Dryrun)
 
  This utility does not interact with `efibootmgr` nor does creates for missing 'startup.nsh' file(s) in this beta/experimental stage.
  Sorry about the clunky code of this beta/experiment utility.
+
+ Disclaimer: This utility is provided AS-IS, and I'm NOT responsible for any data loss or damage caused by the use of it, use solely at your own risk.
+
